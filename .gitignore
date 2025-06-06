@@ -1,30 +1,32 @@
-# Bỏ qua các tệp biên dịch
+# IDE và môi trường phát triển
+.idea/
+.vscode/
+*.iml
+
+# Môi trường ảo Python
+.venv/
+venv/
+env/
+
+# Tệp Python tạm
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Bỏ qua thư mục ảo của Python
-__pycache__/
+# Mô hình và cache
+phobert_base/
+phobert_finetuned/
+embedding_cache.pkl
+qa_index.faiss
 
-# Bỏ qua môi trường ảo
-venv/
-.env/
-.virtualenv/
+# Log và Redis cục bộ
+app.log
+celery.log
+redis/
 
-# Bỏ qua các tệp nhật ký
-logs/
-*.log
-app
-celery
+# Dữ liệu Excel
+*.xlsx
 
-# Bỏ qua thư mục kết quả biên dịch và IDE
-.idea/
-.vscode/
-
-# Bỏ qua tệp database SQLite (nếu có)
-*.sqlite3
-*.db
-
-# Bỏ qua thư mục dist, build khi đóng gói
-dist/
-build/
+# Biến môi trường
+.env

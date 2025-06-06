@@ -1,0 +1,84 @@
+services:
+  - type: web
+    name: qa-automation-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main3:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.7
+      - key: RENDER_ENV
+        value: production
+      - key: CACHE_PATH
+        value: /var/cache/embedding_cache.pkl
+      - key: FAISS_INDEX_PATH
+        value: /var/cache/qa_index.faiss
+      - key: MODEL_PATH
+        value: /var/cache/phobert_base
+      - key: CHECKPOINT_PATH
+        value: /var/cache/phobert_finetuned
+      - key: DB_HOST
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: qa-automation-redis
+          property: connectionString
+    disks:
+      - name: cache
+        mountPath: /var/cache
+        sizeGB: 10
+    autoDeploy: true
+  - type: redis
+    name: qa-automation-redis
+    ipAllowList: []
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+  - type: worker
+    name: qa-automation-celery
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A celery_config worker --pool=solo --concurrency=1 --loglevel=info
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.7
+      - key: RENDER_ENV
+        value: production
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: qa-automation-redis
+          property: connectionString
+      - key: CACHE_PATH
+        value: /var/cache/embedding_cache.pkl
+      - key: FAISS_INDEX_PATH
+        value: /var/cache/qa_index.faiss
+      - key: MODEL_PATH
+        value: /var/cache/phobert_base
+      - key: CHECKPOINT_PATH
+        value: /var/cache/phobert_finetuned
+      - key: DB_HOST
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: API_KEY
+        sync: false
+    disks:
+      - name: cache
+        mountPath: /var/cache
+        sizeGB: 10
+    autoDeploy: true
