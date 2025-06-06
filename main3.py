@@ -1,35 +1,34 @@
-from dotenv import load_dotenv
-# Tải tệp .env
-load_dotenv()
 import logging
 import numpy as np
 import pandas as pd
 import time
-import os
 from io import BytesIO
 import asyncio
 from datetime import datetime
-from typing import List, Tuple
-from fastapi import FastAPI, HTTPException, File, UploadFile, Depends, Request
+from typing import List, Dict
+from fastapi import FastAPI, HTTPException, File, UploadFile, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pandas import errors as pd_errors
 import atexit
+import os
 from utils import (
-    state, AppState, get_app_state, clean_text, count_records, load_data, save_data_batch,
-    encode_text_batch, save_faiss_index, save_cache, initialize_cache_and_index,
-    init_db_pool, close_db_state, init_db, CACHE_PATH, FAISS_INDEX_PATH,
-    FINE_TUNE_THRESHOLD, FINE_TUNE_INTERVAL
+    state, AppState, get_app_state, clean_text, count_records, load_data_db,
+    save_data_batch, encode_text_batch, save_faiss_index, save_cache,
+    initialize_cache_and_index, init_db_pool, close_db_state, init_db,
+    CACHE_PATH, FAISS_INDEX_PATH, FINE_TUNE_THRESHOLD, FINE_TUNE_INTERVAL
 )
 from sentence_transformers import SentenceTransformer
-
 
 # Cấu hình logging
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -39,8 +38,7 @@ app = FastAPI()
 # Cấu hình CORS
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins=["http://localhost:3000"],
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,7 +78,6 @@ async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(g
                         logger.info(f"Skipped empty question-answer pair after cleaning: question='{q}', answer='{a}'")
                         skipped_empty += 1
                         continue
-                    # Kiểm tra trùng lặp trên q, a
                     await cursor.execute(
                         "SELECT id FROM qa_data WHERE question = %s AND answer = %s LIMIT 1",
                         (q, a)
@@ -90,7 +87,7 @@ async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(g
                         skipped_duplicate += 1
                         continue
                     emb = encode_text_batch([q_clean], state)[0]
-                    records.append((datetime.now(), q, a, emb.tobytes()))  # Lưu q, a
+                    records.append((datetime.now(), q, a, emb.tobytes()))
                     new_embeddings.append((emb, q, a, q_clean, a_clean))
         if not records:
             logger.error(f"No valid records to save: {skipped_empty} empty after cleaning, {skipped_duplicate} duplicates")
@@ -100,10 +97,10 @@ async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(g
             )
         inserted_data = await save_data_batch(records, state)
         inserted_ids = [data[0] for data in inserted_data]
-        new_questions = [data[1] for data in new_embeddings]      # q
-        new_answers = [data[2] for data in new_embeddings]        # a
-        new_clean_questions = [data[3] for data in new_embeddings]  # q_clean
-        new_clean_answers = [data[4] for data in new_embeddings]    # a_clean
+        new_questions = [data[1] for data in new_embeddings]
+        new_answers = [data[2] for data in new_embeddings]
+        new_clean_questions = [data[3] for data in new_embeddings]
+        new_clean_answers = [data[4] for data in new_embeddings]
         new_embs = [data[0] for data in new_embeddings]
         if state.cache_data['embeddings'].size:
             state.cache_data['embeddings'] = np.vstack([state.cache_data['embeddings'], new_embs])
@@ -124,7 +121,8 @@ async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(g
         total_records = await count_records(state)
         new_records = total_records - state.last_fine_tune_record_count
         fine_tuned = False
-        if new_records >= FINE_TUNE_THRESHOLD and time.time() - state.last_fine_tune > FINE_TUNE_INTERVAL:
+        state.raw_data = await load_data_db(state)
+        if new_records >= FINE_TUNE_THRESHOLD and time.time() - state.last_fine_tune > FINE_TUNE_INTERVAL and len(state.raw_data) >= 10:
             try:
                 from tasks import fine_tune_task
                 logger.info(f"New records ({new_records}) >= {FINE_TUNE_THRESHOLD}, triggering fine-tuning")
@@ -151,7 +149,7 @@ async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(g
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # Hàm tìm kiếm
-def search_answer(query: str, k: int = 5, state: AppState = Depends(get_app_state)) -> List[dict]:
+def search_answer(query: str, k: int = 5, state: AppState = Depends(get_app_state)) -> List[Dict]:
     if not query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     query_clean = clean_text(query)
@@ -162,9 +160,9 @@ def search_answer(query: str, k: int = 5, state: AppState = Depends(get_app_stat
     for j, i in enumerate(indices[0]):
         if i in id_to_idx:
             idx = id_to_idx[i]
-            answer = state.cache_data['answers'][idx]  # Dữ liệu gốc
-            question = state.cache_data['questions'][idx]  # Dữ liệu gốc
-            clean_answer = state.cache_data['clean_answers'][idx]  # Dùng để nhóm
+            answer = state.cache_data['answers'][idx]
+            question = state.cache_data['questions'][idx]
+            clean_answer = state.cache_data['clean_answers'][idx]
             distance = float(distances[0][j])
             if clean_answer not in answer_groups:
                 answer_groups[clean_answer] = {"questions": [], "min_distance": distance}
@@ -176,7 +174,6 @@ def search_answer(query: str, k: int = 5, state: AppState = Depends(get_app_stat
     if sorted_groups:
         top_clean_answer, top_group = sorted_groups[0]
         top_question = min(top_group["questions"], key=lambda x: x["distance"])
-        # Tìm answer gốc tương ứng với clean_answer
         idx = state.cache_data['clean_answers'].index(top_clean_answer)
         top_answer = state.cache_data['answers'][idx]
         results.append({
@@ -188,7 +185,6 @@ def search_answer(query: str, k: int = 5, state: AppState = Depends(get_app_stat
     for clean_answer, group in sorted_groups[1:]:
         if clean_answer not in used_clean_answers and len(results) < k:
             best_question = min(group["questions"], key=lambda x: x["distance"])
-            # Tìm answer gốc
             idx = state.cache_data['clean_answers'].index(clean_answer)
             answer = state.cache_data['answers'][idx]
             results.append({
@@ -281,15 +277,9 @@ async def update(data_input: UpdateData, state: AppState = Depends(get_app_state
         logger.error(f"Update error: {e}")
         raise HTTPException(status_code=500, detail=f"Update error: {str(e)}")
 
-async def verify_api_key(request: Request):
-    api_key = request.headers.get("X-API-Key")
-    expected_key = os.getenv("API_KEY")
-    if not api_key or api_key != expected_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
 # API fine-tune thủ công
 @app.post("/fine_tune")
-async def fine_tune(state: AppState = Depends(get_app_state), _ = Depends(verify_api_key)):
+async def fine_tune(state: AppState = Depends(get_app_state)):
     try:
         from tasks import fine_tune_task
         fine_tune_task.delay()
@@ -309,7 +299,7 @@ async def auto_fine_tune():
     logger.info("Starting auto fine-tune")
     try:
         state = get_app_state()
-        state.raw_data = load_data()
+        state.raw_data = await load_data_db(state)
         total_records = await count_records(state)
         new_records = total_records - state.last_fine_tune_record_count
         if new_records >= FINE_TUNE_THRESHOLD and len(state.raw_data) >= 10:
@@ -325,41 +315,26 @@ async def auto_fine_tune():
 # Khởi tạo scheduler
 scheduler = AsyncIOScheduler()
 scheduler.add_job(auto_fine_tune, 'interval', weeks=1)
-
-#Chỉ chạy scheduler trong môi trường non-production
-if os.getenv("RENDER_ENV") != "production":
-    scheduler.start()
+scheduler.start()
 
 # Tắt scheduler
 atexit.register(lambda: scheduler.shutdown())
 
 # Khởi tạo ứng dụng
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "phobert_base") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_base"
 @app.on_event("startup")
 async def startup_event():
     try:
-        async def init_resources():  # Timeout 60s để tránh lỗi khởi động trên Render
-            logger.debug("Starting event")
-            # Khởi tạo mô hình PhoBERT
-            if os.path.exists(MODEL_PATH):
-                logger.info(f"Loading PhoBERT from {MODEL_PATH}")
-                state.model = SentenceTransformer(MODEL_PATH)
-            else:
-                logger.info("Downloading PhoBERT from vinai/phobert-base")
-                state.model = SentenceTransformer("vinai/phobert-base")
-                os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)  # Tạo thư mục nếu chưa có
-                state.model.save(MODEL_PATH)
-                logger.info(f"Saved PhoBERT to {MODEL_PATH}")
-            # Khởi tạo các tài nguyên khác
-            logger.debug("Starting application initialization")
-            await init_db_pool(state)
-            logger.debug("init_db_pool completed")
-            await init_db(state)
-            logger.debug("init_db completed")
-            await initialize_cache_and_index(state)
-            logger.debug("initialize_cache_and_index completed")
-            logger.info("Application startup completed successfully")
-        await asyncio.wait_for(init_resources(), timeout=60)  # Timeout 60s
+        logger.debug("Starting application initialization")
+        await init_db_pool(state)
+        logger.debug("init_db_pool completed")
+        await init_db(state)
+        logger.debug("init_db completed")
+        model_path = os.getenv("MODEL_PATH", "./phobert_base") if os.path.exists(os.getenv("MODEL_PATH", "./phobert_base")) else "vinai/phobert-base"
+        state.model = SentenceTransformer(model_path)
+        logger.debug("Model loaded successfully")
+        await initialize_cache_and_index(state)
+        logger.debug("initialize_cache_and_index completed")
+        logger.info("Application startup completed successfully")
     except Exception as e:
         logger.critical(f"Startup failed: {e}")
         raise SystemExit(f"Failed to initialize resources: {e}")

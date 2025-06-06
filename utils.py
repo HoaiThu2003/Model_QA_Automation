@@ -1,5 +1,4 @@
 import logging
-import ssl
 import numpy as np
 import pandas as pd
 import faiss
@@ -21,13 +20,7 @@ from fastapi import HTTPException
 from sentence_transformers import SentenceTransformer, InputExample, losses
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
-from sqlalchemy import create_engine
 from tenacity import retry, stop_after_attempt, wait_fixed
-from pandas import errors as pd_errors
-from dotenv import load_dotenv
-
-# Tải tệp .env
-load_dotenv()
 
 # Tắt cảnh báo pin_memory
 import warnings
@@ -37,51 +30,35 @@ warnings.filterwarnings("ignore", category=UserWarning, module="torch.utils.data
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
 )
 logger = logging.getLogger(__name__)
 
 # Đường dẫn lưu cache
-CACHE_PATH = os.path.join(os.path.dirname(__file__), "embedding_cache.pkl") if os.getenv("RENDER_ENV") != "production" else "/var/cache/embedding_cache.pkl"
-FAISS_INDEX_PATH = os.path.join(os.path.dirname(__file__), "qa_index.faiss") if os.getenv("RENDER_ENV") != "production" else "/var/cache/qa_index.faiss"
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "phobert_base") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_base"
-CHECKPOINT_PATH = os.path.join(os.path.dirname(__file__), "phobert_finetuned") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_finetuned"
+CACHE_PATH = os.getenv("CACHE_PATH", "embedding_cache.pkl")
+FAISS_INDEX_PATH = os.getenv("FAISS_INDEX_PATH", "qa_index.faiss")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "phobert_base") if os.getenv("RENDER_ENV") != "production" else "/app/data/phobert_base"
+CHECKPOINT_PATH = os.path.join(os.path.dirname(__file__), "phobert_finetuned") if os.getenv("RENDER_ENV") != "production" else "/app/data/phobert_finetuned"
 
 # Hằng số
 FINE_TUNE_THRESHOLD = 50
 FINE_TUNE_INTERVAL = 3600  # 1 giờ
 
-# Cấu hình SQLAlchemy
-# sqlalchemy_engine = create_engine("mysql+mysqlconnector://root:@localhost/qa_db")
-# sqlalchemy_url = f"mysql+mysqlconnector://{os.getenv('DB_USER', 'root')}:{os.getenv('DB_PASSWORD', '')}@{os.getenv('DB_HOST', 'localhost')}/{os.getenv('DB_NAME', 'qa_db')}"
-# sqlalchemy_engine = create_engine(sqlalchemy_url)
-
-# Tạo SSL context với chứng chỉ CA
-default_ca_path = os.path.join(os.path.dirname(__file__), "certs", "isrgrootx1.pem") if os.getenv("RENDER_ENV") != "production" else "/app/certs/isrgrootx1.pem"
-ssl_ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-ssl_ctx.load_verify_locations(os.getenv("CA_PATH", default_ca_path))
-ssl_ctx.verify_mode = ssl.CERT_REQUIRED
-
 # Cấu hình MySQL cho aiomysql
 db_config = {
-    "host": os.getenv("DB_HOST", "gateway01.ap-southeast-1.prod.aws.tidbcloud.com"),
-    "port": int(os.getenv("DB_PORT", "4000")),
-    "user": os.getenv("DB_USER", ""),
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": int(os.getenv("DB_PORT", 3306)),
+    "user": os.getenv("DB_USER", "root"),
     "password": os.getenv("DB_PASSWORD", ""),
-    "db": os.getenv("DB_NAME", "test"),
+    "db": os.getenv("DB_NAME", "qa_db"),
     "maxsize": 20,
     "minsize": 10,
     "connect_timeout": 10,
-    "ssl": ssl_ctx,
     "charset": "utf8mb4"
 }
-
-# Cấu hình Redis
-# redis_config = {
-#     "host": os.getenv("REDIS_HOST", "localhost"),
-#     "port": int(os.getenv("REDIS_PORT", 6379)),
-#     "db": int(os.getenv("REDIS_DB", 0))
-# }
 
 # Quản lý trạng thái ứng dụng
 class AppState:
@@ -110,17 +87,8 @@ state = AppState()
 def get_app_state():
     return state
 
-def check_required_env_vars():
-    required_vars = ["REDIS_URL", "DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_PORT", "CA_PATH",
-                     "MODEL_PATH", "CHECKPOINT_PATH"]
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
-    if missing_vars:
-        logger.error(f"Missing required environment variables: {missing_vars}")
-        raise RuntimeError(f"Missing environment variables: {missing_vars}")
-
 # Khởi tạo connection pool và Redis client
 async def init_db_pool(state: AppState):
-    check_required_env_vars()
     try:
         logger.debug(f"Attempting to create MySQL connection pool with config: {db_config}")
         state.db_pool = await aiomysql.create_pool(**db_config)
@@ -134,8 +102,8 @@ async def init_db_pool(state: AppState):
 
     try:
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        logger.debug(f"Connecting to Redis with URL: {redis_url}")
-        state.redis_client = redis.from_url(redis_url)
+        logger.debug(f"Attempting to connect to Redis with URL: {redis_url}")
+        state.redis_client = redis.Redis.from_url(redis_url)
         state.redis_client.ping()
         logger.debug("Redis client connected successfully")
     except redis.RedisError as e:
@@ -215,15 +183,31 @@ async def get_latest_timestamp(state: AppState) -> datetime:
                 return datetime.min
 
 # Đọc dữ liệu từ MySQL
-def load_data(limit: int = None, batch_size: int = 1000) -> pd.DataFrame:
+async def load_data_db(state: AppState, limit: int = None, batch_size: int = 1000) -> pd.DataFrame:
     try:
-        query = "SELECT id, date, question, answer, embedding FROM qa_data"
-        if limit:
-            query += f" LIMIT {limit}"
-        data = pd.read_sql(query, chunksize=batch_size)
-        result = pd.concat([chunk for chunk in data], ignore_index=True) if data else pd.DataFrame(columns=['id', 'date', 'question', 'answer', 'embedding'])
-        logger.info(f"Loaded {len(result)} records from database")
-        return result
+        async with state.db_pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                query = "SELECT id, date, question, answer, embedding FROM qa_data"
+                if limit:
+                    query += f" LIMIT {limit}"
+                await cursor.execute(query)
+                rows = await cursor.fetchall()
+                if not rows:
+                    logger.info("No data found in qa_data table")
+                    return pd.DataFrame(columns=['id', 'date', 'question', 'answer', 'embedding'])
+                data = []
+                for row in rows:
+                    embedding = np.frombuffer(row[4]) if row[4] else None
+                    data.append({
+                        'id': row[0],
+                        'date': row[1],
+                        'question': row[2],
+                        'answer': row[3],
+                        'embedding': embedding
+                    })
+                result = pd.DataFrame(data)
+                logger.info(f"Loaded {len(result)} records from database")
+                return result
     except Exception as e:
         logger.error(f"Error loading data: {e}")
         return pd.DataFrame(columns=['id', 'date', 'question', 'answer', 'embedding'])
@@ -281,7 +265,7 @@ def check_resources() -> bool:
     cpu_percent = psutil.cpu_percent(interval=1)
     memory = psutil.virtual_memory()
     logger.info(f"System resources: CPU {cpu_percent}%, Memory {memory.percent}%")
-    if cpu_percent > 90 or memory.percent > 90:
+    if cpu_percent > 70 or memory.percent > 70:
         logger.warning("Insufficient system resources, postponing fine-tuning")
         return False
     return True
@@ -297,20 +281,12 @@ async def initialize_cache_and_index(state: AppState):
         db_latest = await get_latest_timestamp(state)
         if len(state.cache_data['ids']) != db_count or (state.cache_data['last_updated'] and state.cache_data['last_updated'] < db_latest):
             logger.warning("Cache outdated or mismatched, regenerating")
-            state.raw_data = load_data(batch_size=5000)
-            batch_size = 1000
-            clean_questions = []
-            clean_answers = []
-            embeddings = []
-            for i in range(0, len(state.raw_data), batch_size):
-                batch_questions = state.raw_data['question'][i:i+batch_size].tolist()
-                batch_answers = state.raw_data['answer'][i:i+batch_size].tolist()
-                clean_questions.extend([clean_text(q) for q in batch_questions if q])
-                clean_answers.extend([clean_text(a) for a in batch_answers if a])
-                embeddings.extend(encode_text_batch(clean_questions[-batch_size:], state))
+            state.raw_data = await load_data_db(state)
+            clean_questions = [clean_text(q) for q in state.raw_data['question'] if q]
+            clean_answers = [clean_text(a) for a in state.raw_data['answer'] if a]
             state.cache_data = {
                 'ids': state.raw_data['id'].tolist(),
-                'embeddings': np.array(embeddings),
+                'embeddings': encode_text_batch(clean_questions, state),
                 'questions': state.raw_data['question'].tolist(),
                 'answers': state.raw_data['answer'].tolist(),
                 'clean_questions': clean_questions,
@@ -352,7 +328,7 @@ async def initialize_cache_and_index(state: AppState):
 
 # Hàm cập nhật embedding sau fine-tune
 async def update_embeddings_after_finetune(state: AppState):
-    state.raw_data = load_data()
+    state.raw_data = await load_data_db(state)
     batch_size = 1000
     clean_questions = [clean_text(q) for q in state.raw_data['question'] if q]
     clean_answers = [clean_text(a) for a in state.raw_data['answer'] if a]
@@ -368,18 +344,23 @@ async def update_embeddings_after_finetune(state: AppState):
     }
     async with state.db_pool.acquire() as conn:
         async with conn.cursor() as cursor:
-            for i in range(0, len(state.cache_data['ids']), batch_size):
-                batch_ids = state.cache_data['ids'][i:i + batch_size]
-                batch_embeddings = state.cache_data['embeddings'][i:i + batch_size]
-                query = "UPDATE qa_data SET embedding = %s WHERE id = %s"
-                await cursor.executemany(query, [(emb.tobytes(), id_) for emb, id_ in zip(batch_embeddings, batch_ids)])
-                await conn.commit()
+            try:
+                for i in range(0, len(state.cache_data['ids']), batch_size):
+                    batch_ids = state.cache_data['ids'][i:i + batch_size]
+                    batch_embs = state.cache_data['embeddings'][i:i + batch_size]
+                    query = "UPDATE qa_data SET embedding = %s WHERE id = %s"
+                    await cursor.executemany(query, [(emb.tobytes(), id_) for emb, id_ in zip(batch_embs, batch_ids)])
+                    await conn.commit()
+                logger.info("Updated embeddings in database")
+            except Exception as e:
+                logger.error(f"Error updating embeddings: {e}")
+                raise
     dimension = state.cache_data['embeddings'].shape[1] if state.cache_data['embeddings'].size else 768
     state.index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
     if state.cache_data['embeddings'].size:
         state.index.add_with_ids(
             state.cache_data['embeddings'].astype(np.float32),
-            np.array(state.cache_data['ids'], dtype=np.int64),
+            np.array(state.cache_data['ids'], dtype=np.int64)
         )
     save_cache(state.cache_data, CACHE_PATH, state.redis_client)
     save_faiss_index(state.index, FAISS_INDEX_PATH, state.redis_client)
@@ -394,9 +375,19 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
         logger.error("Insufficient system resources for fine-tuning")
         return False
 
+    if state.model is None:
+        logger.error("Model not initialized")
+        return False
+
     try:
         if state.raw_data is None or state.raw_data.empty or len(state.raw_data) < 10:
-            state.raw_data = load_data()
+            loop = loop or asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                state.raw_data = loop.run_until_complete(load_data_db(state))
+            finally:
+                if not loop.is_closed():
+                    loop.close()
             if len(state.raw_data) < 10:
                 logger.error("Not enough data for fine-tuning")
                 return False
@@ -404,7 +395,7 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
         # Khởi tạo tokenizer
         base_path = os.getenv("MODEL_PATH", MODEL_PATH)
         logger.info(f"Loading tokenizer from: {base_path}")
-        if base_path == "./phobert_base" and not os.path.exists(os.path.join(base_path, "tokenizer_config.json")):
+        if base_path.endswith("phobert_base") and not os.path.exists(os.path.join(base_path, "tokenizer_config.json")):
             logger.error(f"Tokenizer config not found in {base_path}. Required files: tokenizer_config.json, vocab.txt, bpe.codes")
             return False
         if state.tokenizer is None:
@@ -426,7 +417,7 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
 
                 groups = state.raw_data.groupby('answer')
                 for answer, group in groups:
-                    clean_questions = [clean_text(q) for q in group['question'].tolist() if q]
+                    clean_questions = [clean_text(q) for q in group['question'].tolist() if clean_text(q)]
                     if len(clean_questions) > 1:
                         for i in range(len(clean_questions)):
                             for j in range(i + 1, len(clean_questions)):
@@ -442,7 +433,7 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
                     batch_size=4,
                     pin_memory=False
                 )
-                train_loss = losses.MultipleNegativesRankingLoss(model=state.model)
+                train_loss = losses.MultipleNegativesRankingLoss(state.model)
                 checkpoint_path = os.getenv("CHECKPOINT_PATH", CHECKPOINT_PATH)
 
                 with tempfile.TemporaryDirectory() as temp_dir:
@@ -483,16 +474,12 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
                 logger.info("Reloaded fine-tuned model")
 
                 state.last_fine_tune = int(time.time())
-                if loop is None:
-                    loop = asyncio.new_event_loop()
-                    close_loop = True
-                else:
-                    close_loop = False
+                loop = loop or asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 try:
-                    asyncio.set_event_loop(loop)
                     state.last_fine_tune_record_count = loop.run_until_complete(count_records(state))
                 finally:
-                    if close_loop:
+                    if not loop.is_closed():
                         loop.close()
                         logger.info("Closed temporary event loop")
 
@@ -504,5 +491,5 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
                 return False
 
     except Exception as e:
-        logger.error(f"Error in fine_tune_phobert: {e}", exc_info=True)
+        logger.error(f"Fine-tune error: {e}")
         return False
