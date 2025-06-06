@@ -3,6 +3,7 @@ services:
     name: qa-automation-api
     env: python
     plan: free
+    region: singapore
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main3:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -11,13 +12,13 @@ services:
       - key: RENDER_ENV
         value: production
       - key: CACHE_PATH
-        value: /var/cache/embedding_cache.pkl
+        value: /tmp/embedding_cache.pkl  # Sửa thành /tmp
       - key: FAISS_INDEX_PATH
-        value: /var/cache/qa_index.faiss
+        value: /tmp/qa_index.faiss      # Sửa thành /tmp
       - key: MODEL_PATH
-        value: /var/cache/phobert_base
+        value: /tmp/phobert_base        # Sửa thành /tmp
       - key: CHECKPOINT_PATH
-        value: /var/cache/phobert_finetuned
+        value: /tmp/phobert_finetuned   # Sửa thành /tmp
       - key: DB_HOST
         sync: false
       - key: DB_PORT
@@ -37,10 +38,6 @@ services:
           type: redis
           name: qa-automation-redis
           property: connectionString
-    disk:
-      name: cache
-      mountPath: /var/cache
-      sizeGB: 10
     autoDeploy: true
   - type: redis
     name: qa-automation-redis
@@ -51,6 +48,7 @@ services:
     name: qa-automation-celery
     env: python
     plan: free
+    region: singapore
     buildCommand: pip install -r requirements.txt
     startCommand: celery -A celery_config worker --pool=solo --concurrency=1 --loglevel=info
     envVars:
@@ -64,13 +62,13 @@ services:
           name: qa-automation-redis
           property: connectionString
       - key: CACHE_PATH
-        value: /var/cache/embedding_cache.pkl
+        value: /tmp/embedding_cache.pkl  # Sửa thành /tmp
       - key: FAISS_INDEX_PATH
-        value: /var/cache/qa_index.faiss
+        value: /tmp/qa_index.faiss      # Sửa thành /tmp
       - key: MODEL_PATH
-        value: /var/cache/phobert_base
+        value: /tmp/phobert_base        # Sửa thành /tmp
       - key: CHECKPOINT_PATH
-        value: /var/cache/phobert_finetuned
+        value: /tmp/phobert_finetuned   # Sửa thành /tmp
       - key: DB_HOST
         sync: false
       - key: DB_PORT
@@ -85,8 +83,4 @@ services:
         value: /app/certs/isrgrootx1.pem
       - key: API_KEY
         sync: false
-    disk:
-      name: cache
-      mountPath: /var/cache
-      sizeGB: 10
     autoDeploy: true
