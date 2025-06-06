@@ -37,7 +37,7 @@ services:
           type: redis
           name: qa-automation-redis
           property: connectionString
-    disks:
+    disk:
       - name: cache
         mountPath: /var/cache
         sizeGB: 10
@@ -85,7 +85,7 @@ services:
         value: /app/certs/isrgrootx1.pem
       - key: API_KEY
         sync: false
-    disks:
+    disk:
       - name: cache
         mountPath: /var/cache
         sizeGB: 10
