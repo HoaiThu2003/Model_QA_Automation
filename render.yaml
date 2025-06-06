@@ -20,12 +20,16 @@ services:
         value: /var/cache/phobert_finetuned
       - key: DB_HOST
         sync: false
+      - key: DB_PORT
+        value: 4000
       - key: DB_USER
         sync: false
       - key: DB_PASSWORD
         sync: false
       - key: DB_NAME
         sync: false
+      - key: CA_PATH
+        value: /app/certs/isrgrootx1.pem
       - key: API_KEY
         sync: false
       - key: REDIS_URL
@@ -69,12 +73,16 @@ services:
         value: /var/cache/phobert_finetuned
       - key: DB_HOST
         sync: false
+      - key: DB_PORT
+        value: 4000
       - key: DB_USER
         sync: false
       - key: DB_PASSWORD
         sync: false
       - key: DB_NAME
         sync: false
+      - key: CA_PATH
+        value: /app/certs/isrgrootx1.pem
       - key: API_KEY
         sync: false
     disks:

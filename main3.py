@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+# Tải tệp .env
+load_dotenv()
 import logging
 import numpy as np
 import pandas as pd
@@ -20,6 +23,7 @@ from utils import (
     FINE_TUNE_THRESHOLD, FINE_TUNE_INTERVAL
 )
 from sentence_transformers import SentenceTransformer
+
 
 # Cấu hình logging
 logging.basicConfig(
@@ -330,11 +334,11 @@ if os.getenv("RENDER_ENV") != "production":
 atexit.register(lambda: scheduler.shutdown())
 
 # Khởi tạo ứng dụng
-MODEL_PATH = os.getenv("MODEL_PATH", "/var/cache/phobert_base")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "phobert_base") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_base"
 @app.on_event("startup")
 async def startup_event():
     try:
-        async with asyncio.timeout(60):  # Timeout 60s để tránh lỗi khởi động trên Render
+        async def init_resources():  # Timeout 60s để tránh lỗi khởi động trên Render
             logger.debug("Starting event")
             # Khởi tạo mô hình PhoBERT
             if os.path.exists(MODEL_PATH):
@@ -355,6 +359,7 @@ async def startup_event():
             await initialize_cache_and_index(state)
             logger.debug("initialize_cache_and_index completed")
             logger.info("Application startup completed successfully")
+        await asyncio.wait_for(init_resources(), timeout=60)  # Timeout 60s
     except Exception as e:
         logger.critical(f"Startup failed: {e}")
         raise SystemExit(f"Failed to initialize resources: {e}")

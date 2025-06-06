@@ -1,4 +1,5 @@
 import logging
+import ssl
 import numpy as np
 import pandas as pd
 import faiss
@@ -23,6 +24,10 @@ from transformers import AutoTokenizer
 from sqlalchemy import create_engine
 from tenacity import retry, stop_after_attempt, wait_fixed
 from pandas import errors as pd_errors
+from dotenv import load_dotenv
+
+# Tải tệp .env
+load_dotenv()
 
 # Tắt cảnh báo pin_memory
 import warnings
@@ -37,8 +42,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Đường dẫn lưu cache
-CACHE_PATH = os.getenv("CACHE_PATH", "/var/cache/embedding_cache.pkl")
-FAISS_INDEX_PATH = os.getenv("FAISS_INDEX_PATH", "/var/cache/qa_index.faiss")
+CACHE_PATH = os.path.join(os.path.dirname(__file__), "embedding_cache.pkl") if os.getenv("RENDER_ENV") != "production" else "/var/cache/embedding_cache.pkl"
+FAISS_INDEX_PATH = os.path.join(os.path.dirname(__file__), "qa_index.faiss") if os.getenv("RENDER_ENV") != "production" else "/var/cache/qa_index.faiss"
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "phobert_base") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_base"
+CHECKPOINT_PATH = os.path.join(os.path.dirname(__file__), "phobert_finetuned") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_finetuned"
 
 # Hằng số
 FINE_TUNE_THRESHOLD = 50
@@ -46,18 +53,27 @@ FINE_TUNE_INTERVAL = 3600  # 1 giờ
 
 # Cấu hình SQLAlchemy
 # sqlalchemy_engine = create_engine("mysql+mysqlconnector://root:@localhost/qa_db")
-sqlalchemy_url = f"mysql+mysqlconnector://{os.getenv('DB_USER', 'root')}:{os.getenv('DB_PASSWORD', '')}@{os.getenv('DB_HOST', 'localhost')}/{os.getenv('DB_NAME', 'qa_db')}"
-sqlalchemy_engine = create_engine(sqlalchemy_url)
+# sqlalchemy_url = f"mysql+mysqlconnector://{os.getenv('DB_USER', 'root')}:{os.getenv('DB_PASSWORD', '')}@{os.getenv('DB_HOST', 'localhost')}/{os.getenv('DB_NAME', 'qa_db')}"
+# sqlalchemy_engine = create_engine(sqlalchemy_url)
+
+# Tạo SSL context với chứng chỉ CA
+default_ca_path = os.path.join(os.path.dirname(__file__), "certs", "isrgrootx1.pem") if os.getenv("RENDER_ENV") != "production" else "/app/certs/isrgrootx1.pem"
+ssl_ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+ssl_ctx.load_verify_locations(os.getenv("CA_PATH", default_ca_path))
+ssl_ctx.verify_mode = ssl.CERT_REQUIRED
 
 # Cấu hình MySQL cho aiomysql
 db_config = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "user": os.getenv("DB_USER", "root"),
+    "host": os.getenv("DB_HOST", "gateway01.ap-southeast-1.prod.aws.tidbcloud.com"),
+    "port": int(os.getenv("DB_PORT", "4000")),
+    "user": os.getenv("DB_USER", ""),
     "password": os.getenv("DB_PASSWORD", ""),
-    "db": os.getenv("DB_NAME", "qa_db"),
+    "db": os.getenv("DB_NAME", "test"),
     "maxsize": 20,
     "minsize": 10,
-    "connect_timeout": 10
+    "connect_timeout": 10,
+    "ssl": ssl_ctx,
+    "charset": "utf8mb4"
 }
 
 # Cấu hình Redis
@@ -95,8 +111,8 @@ def get_app_state():
     return state
 
 def check_required_env_vars():
-    required_vars = ["REDIS_URL", "DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME",
-                     "MODEL_PATH", "CHECKPOINT_PATH", "CACHE_PATH", "FAISS_INDEX_PATH"]
+    required_vars = ["REDIS_URL", "DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_PORT", "CA_PATH",
+                     "MODEL_PATH", "CHECKPOINT_PATH"]
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
         logger.error(f"Missing required environment variables: {missing_vars}")
@@ -204,7 +220,7 @@ def load_data(limit: int = None, batch_size: int = 1000) -> pd.DataFrame:
         query = "SELECT id, date, question, answer, embedding FROM qa_data"
         if limit:
             query += f" LIMIT {limit}"
-        data = pd.read_sql(query, sqlalchemy_engine, chunksize=batch_size)
+        data = pd.read_sql(query, chunksize=batch_size)
         result = pd.concat([chunk for chunk in data], ignore_index=True) if data else pd.DataFrame(columns=['id', 'date', 'question', 'answer', 'embedding'])
         logger.info(f"Loaded {len(result)} records from database")
         return result
@@ -386,7 +402,7 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
                 return False
 
         # Khởi tạo tokenizer
-        base_path = "./phobert_base" if os.path.exists("./phobert_base") else "vinai/phobert-base"
+        base_path = os.getenv("MODEL_PATH", MODEL_PATH)
         logger.info(f"Loading tokenizer from: {base_path}")
         if base_path == "./phobert_base" and not os.path.exists(os.path.join(base_path, "tokenizer_config.json")):
             logger.error(f"Tokenizer config not found in {base_path}. Required files: tokenizer_config.json, vocab.txt, bpe.codes")
@@ -427,7 +443,7 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
                     pin_memory=False
                 )
                 train_loss = losses.MultipleNegativesRankingLoss(model=state.model)
-                checkpoint_path = os.getenv("CHECKPOINT_PATH", "/var/cache/phobert_finetuned")
+                checkpoint_path = os.getenv("CHECKPOINT_PATH", CHECKPOINT_PATH)
 
                 with tempfile.TemporaryDirectory() as temp_dir:
                     temp_checkpoint = os.path.join(temp_dir, "phobert_temp")

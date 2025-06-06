@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 import sys
 import logging
 import asyncio
@@ -7,6 +8,9 @@ import redis
 from celery_config import app
 from utils import db_config, get_app_state, fine_tune_phobert, update_embeddings_after_finetune
 from sentence_transformers import SentenceTransformer
+
+# Tải tệp .env
+load_dotenv()
 
 # Thêm thư mục dự án vào sys.path
 # project_dir = r"C:\Users\admin\TL\Model\QA_Automation"
@@ -60,7 +64,9 @@ def fine_tune_task(self):
             state.db_pool = loop.run_until_complete(init_worker_pool())
             logger.info("Database pool initialized successfully")
 
-        model_path = os.getenv("CHECKPOINT_PATH", "/var/cache/phobert_finetuned") if os.path.exists(os.getenv("CHECKPOINT_PATH", "/var/cache/phobert_finetuned")) else os.getenv("MODEL_PATH", "/var/cache/phobert_base")
+        checkpoint_path = os.path.join(os.path.dirname(__file__), "phobert_finetuned") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_finetuned"
+        model_path = os.path.join(os.path.dirname(__file__), "phobert_base") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_base"
+        model_path = os.getenv("CHECKPOINT_PATH", checkpoint_path) if os.path.exists(os.getenv("CHECKPOINT_PATH", checkpoint_path)) else os.getenv("MODEL_PATH", model_path)
         if not os.path.exists(model_path):
             logger.error(f"Model path {model_path} does not exist")
             raise FileNotFoundError(f"Model path {model_path} does not exist")
@@ -112,7 +118,9 @@ def update_embeddings_task(self):
             state.db_pool = loop.run_until_complete(init_worker_pool())
             logger.info("Database pool initialized successfully")
 
-        model_path = os.getenv("CHECKPOINT_PATH", "/var/cache/phobert_finetuned") if os.path.exists(os.getenv("CHECKPOINT_PATH", "/var/cache/phobert_finetuned")) else os.getenv("MODEL_PATH", "/var/cache/phobert_base")
+        checkpoint_path = os.path.join(os.path.dirname(__file__), "phobert_finetuned") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_finetuned"
+        model_path = os.path.join(os.path.dirname(__file__), "phobert_base") if os.getenv("RENDER_ENV") != "production" else "/var/cache/models/phobert_base"
+        model_path = os.getenv("CHECKPOINT_PATH", checkpoint_path) if os.path.exists(os.getenv("CHECKPOINT_PATH", checkpoint_path)) else os.getenv("MODEL_PATH", model_path)
         if not os.path.exists(model_path):
             logger.error(f"Model path {model_path} does not exist")
             raise FileNotFoundError(f"Model path {model_path} does not exist")
