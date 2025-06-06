@@ -38,9 +38,9 @@ services:
           name: qa-automation-redis
           property: connectionString
     disk:
-      - name: cache
-        mountPath: /var/cache
-        sizeGB: 10
+      name: cache
+      mountPath: /var/cache
+      sizeGB: 10
     autoDeploy: true
   - type: redis
     name: qa-automation-redis
@@ -86,7 +86,7 @@ services:
       - key: API_KEY
         sync: false
     disk:
-      - name: cache
-        mountPath: /var/cache
-        sizeGB: 10
+      name: cache
+      mountPath: /var/cache
+      sizeGB: 10
     autoDeploy: true
