@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, File, UploadFile, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from transformers import AutoModel, AutoTokenizer
 from pandas import errors as pd_errors
 import atexit
 import os
@@ -329,8 +330,16 @@ async def startup_event():
         logger.debug("init_db_pool completed")
         await init_db(state)
         logger.debug("init_db completed")
-        model_path = os.getenv("MODEL_PATH", "./phobert_base") if os.path.exists(os.getenv("MODEL_PATH", "./phobert_base")) else "vinai/phobert-base"
-        state.model = SentenceTransformer(model_path)
+        model_path = os.getenv("MODEL_PATH", "/app/data/phobert_base")
+        if not os.path.exists(model_path):
+            logger.info("Downloading PhoBERT model from Hugging Face...")
+            state.model = SentenceTransformer("vinai/phobert-base")
+            os.makedirs(model_path, exist_ok=True)
+            state.model.save(model_path)
+            logger.info(f"PhoBERT model saved to {model_path}")
+        else:
+            logger.info(f"Loading PhoBERT model from {model_path}")
+            state.model = SentenceTransformer(model_path)
         logger.debug("Model loaded successfully")
         await initialize_cache_and_index(state)
         logger.debug("initialize_cache_and_index completed")
