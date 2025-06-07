@@ -25,7 +25,7 @@ COPY . .
 
 # Copy and set executable permission for entrypoint
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh || echo "Failed to set executable permission for entrypoint.sh"
 
 # Remove any cached models or large files
 RUN find . -name "*.pkl" -type f -delete
@@ -35,5 +35,5 @@ RUN find . -name "*.faiss" -type f -delete
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
-# Run with entrypoint script using shell form to ensure variable expansion
+# Run with entrypoint script using shell form
 ENTRYPOINT ["/bin/sh", "-c", "/app/entrypoint.sh"]
