@@ -4,6 +4,14 @@ phobert_finetuned/
 data/
 *.pkl
 *.faiss
+data/phobert_base
+data/phobert_finetuned
+data/qa_index.faiss
+data/embedding_cache.pkl
+app/data/phobert_finetuned
+app/data/phobert_base
+app/data/qa_index.faiss
+app/data/embedding_cache.pkl
 
 # Loại bỏ cache và file tạm
 __pycache__/
