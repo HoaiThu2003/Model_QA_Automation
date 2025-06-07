@@ -3,7 +3,7 @@ services:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""  # Đảm bảo không có lệnh ghi đè
+      command: ""  # Không ghi đè ENTRYPOINT
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
@@ -14,8 +14,7 @@ services:
       DB_PORT: 3306
       CA_PATH: /app/certs/isrgrootx1.pem
       DB_SSL_ENABLED: false
-      PORT: 8000
-      SERVICE: api
+      SERVICE: api   # ✅ CHỈ giữ SERVICE
     variables:
       DB_HOST: ${{MYSQLHOST}}
       DB_USER: ${{MYSQLUSER}}
@@ -26,11 +25,12 @@ services:
     volumes:
       - path: /app/data
         size: 5GB
+
   qa_automation_celery:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""  # Đảm bảo không có lệnh ghi đè
+      command: ""  # Không ghi đè ENTRYPOINT
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
@@ -52,6 +52,7 @@ services:
     volumes:
       - path: /app/data
         size: 5GB
+
 databases:
   mysql:
     name: qa_automation_db
