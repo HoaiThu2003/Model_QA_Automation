@@ -25,7 +25,7 @@ COPY . .
 
 # Copy and set executable permission for entrypoint
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh || echo "Failed to set executable permission for entrypoint.sh"
+RUN chmod +x /app/entrypoint.sh || { echo "Failed to set executable permission for entrypoint.sh"; exit 1; }
 
 # Remove any cached models or large files
 RUN find . -name "*.pkl" -type f -delete
