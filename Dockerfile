@@ -3,33 +3,39 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Cài đặt phụ thuộc hệ thống
+# 1. Cài gói hệ thống cần thiết
 RUN apt-get update && apt-get install -y \
     build-essential \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
+# 2. Copy requirements
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt -f https://download.pytorch.org/whl/cpu/torch_stable.html
+
+# 3. Tách cài torch trước (có thể cache riêng và giảm thời gian timeout)
+RUN pip install --upgrade pip && \
+    pip install torch==2.6.0
+
+# 4. Cài các thư viện còn lại
+RUN grep -v "^torch" requirements.txt > other.txt && \
+    pip install --no-cache-dir -r other.txt
 
 # Stage 2: Final image
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy only necessary files from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Copy từ builder stage
+COPY --from=builder /usr/local /usr/local
 COPY . .
 
-# Remove any cached models or large files
-RUN find . -name "*.pkl" -type f -delete
-RUN find . -name "*.faiss" -type f -delete
+# Xóa file lớn không cần
+RUN find . -name "*.pkl" -delete || true
+RUN find . -name "*.faiss" -delete || true
 
-# Set environment variables
+# Cấu hình môi trường
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
-# Run with dynamic port from Railway
+# Run app
 CMD ["sh", "-c", "uvicorn main3:app --host 0.0.0.0 --port ${PORT:-8000}"]
