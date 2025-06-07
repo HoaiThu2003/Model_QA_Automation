@@ -1,19 +1,12 @@
 #!/bin/sh
 
-# Debug: In ra toàn bộ biến môi trường để kiểm tra nếu cần
-echo "Environment variables:"
+echo "Available environment variables:"
 env
 
-# In ra giá trị của PORT
-echo "PORT value: $PORT"
+# Set PORT mặc định nếu không được set
+PORT=${PORT:-8000}
+echo "Using PORT=$PORT"
 
-# Gán PORT mặc định nếu chưa có
-if [ -z "$PORT" ]; then
-    echo "PORT is not set, using default 8000"
-    PORT=8000
-fi
-
-# Kiểm tra biến SERVICE
 if [ "$SERVICE" = "api" ]; then
     echo "Starting FastAPI on port $PORT"
     exec uvicorn main3:app --host 0.0.0.0 --port $PORT
