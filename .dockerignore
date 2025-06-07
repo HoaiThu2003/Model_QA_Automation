@@ -1,0 +1,20 @@
+     # Loại bỏ thư mục mô hình lớn
+     phobert_base/
+     phobert_finetuned/
+
+     # Loại bỏ dữ liệu tạm và cache
+     data/
+     *.pkl
+     *.faiss
+     __pycache__/
+     *.pyc
+     *.pyo
+     *.log
+
+     # Loại bỏ các file không cần thiết
+     .git/
+     .gitignore
+     venv/
+     *.env
+     certs/
+     *.pem
