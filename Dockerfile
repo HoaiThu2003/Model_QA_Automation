@@ -23,10 +23,6 @@ COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY . .
 
-# Copy and set executable permission for entrypoint
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh || { echo "Failed to set executable permission for entrypoint.sh"; exit 1; }
-
 # Remove any cached models or large files
 RUN find . -name "*.pkl" -type f -delete
 RUN find . -name "*.faiss" -type f -delete
@@ -35,5 +31,5 @@ RUN find . -name "*.faiss" -type f -delete
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
-# Run with entrypoint script using shell form
-ENTRYPOINT ["/bin/sh", "-c", "/entrypoint.sh"]
+# Run with shell command to handle PORT
+CMD ["/bin/sh", "-c", "echo 'Starting with PORT: $PORT'; if [ -z \"$PORT\" ]; then PORT=8000; echo 'PORT not set, using default: $PORT'; fi; if [ \"$SERVICE\" = \"api\" ]; then uvicorn main3:app --host 0.0.0.0 --port $PORT; elif [ \"$SERVICE\" = \"celery\" ]; then celery -A celery_config worker --pool=solo --concurrency=1 --loglevel=info; else echo 'Unknown SERVICE value: $SERVICE'; exit 1; fi"]

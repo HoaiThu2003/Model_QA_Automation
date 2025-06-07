@@ -3,7 +3,7 @@ services:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""  # Không ghi đè ENTRYPOINT
+      command: ""  # Không ghi đè CMD
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
@@ -22,6 +22,7 @@ services:
       DB_NAME: ${{MYSQLDATABASE}}
       REDIS_URL: ${{REDIS_URL}}
       API_KEY: cf2c57043f614f62966722a999aa13df
+      PORT: 3000  # Đảm bảo PORT được truyền
     volumes:
       - path: /app/data
         size: 5GB
@@ -30,7 +31,7 @@ services:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""  # Không ghi đè ENTRYPOINT
+      command: ""  # Không ghi đè CMD
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
@@ -49,6 +50,7 @@ services:
       DB_NAME: ${{MYSQLDATABASE}}
       REDIS_URL: ${{REDIS_URL}}
       API_KEY: cf2c57043f614f62966722a999aa13df
+      PORT: 3000  # Đảm bảo PORT được truyền
     volumes:
       - path: /app/data
         size: 5GB
