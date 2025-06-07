@@ -48,9 +48,10 @@ services:
       API_KEY: cf2c57043f614f62966722a999aa13df
     volumes:
       - path: /app/data
-        size: 1GB
+        size: 5GB
 databases:
   mysql:
     name: qa-automation-db
   redis:
     name: qa-automation-redis
+    # Force new build to clear cache
