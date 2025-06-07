@@ -31,5 +31,5 @@ RUN find . -name "*.faiss" -type f -delete
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
-# Run the app with shell form to expand $PORT
-CMD uvicorn main:app --host 0.0.0.0 --port $PORT
+# Run with shell to expand $PORT for API or Celery based on entrypoint
+CMD ["sh", "-c", "if [ \"$SERVICE\" = \"api\" ]; then uvicorn main3:app --host 0.0.0.0 --port $PORT; else celery -A celery_config worker --pool=solo --concurrency=1 --loglevel=info; fi"]
