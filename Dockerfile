@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy requirements and install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt -f https://download.pytorch.org/whl/torch_stable.html
+RUN pip install --no-cache-dir -r requirements.txt -f https://download.pytorch.org/whl/cpu/torch_stable.html
 
 # Stage 2: Final image
 FROM python:3.10-slim
@@ -17,9 +17,16 @@ COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY . .
 
+# Remove any cached models or large files
+RUN find . -name "*.pkl" -type f -delete
+RUN find . -name "*.faiss" -type f -delete
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
+
+# Download model at runtime (optional, if not included in code)
+# ENV TRANSFORMERS_CACHE=/tmp/transformers_cache
 
 # Run the app
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "$PORT"]
