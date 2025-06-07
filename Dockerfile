@@ -31,5 +31,5 @@ RUN find . -name "*.faiss" -type f -delete
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
-# Run with fixed port
-CMD ["uvicorn", "main3:app", "--host", "0.0.0.0", "--port", "8080"]
+# Run with dynamic port from Railway
+CMD ["sh", "-c", "uvicorn main3:app --host 0.0.0.0 --port ${PORT:-8000}"]
