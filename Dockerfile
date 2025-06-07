@@ -31,5 +31,5 @@ RUN find . -name "*.faiss" -type f -delete
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
-# Run with shell command to handle PORT
-CMD ["/bin/sh", "-c", "echo 'Starting with PORT: $PORT'; if [ -z \"$PORT\" ]; then PORT=8000; echo 'PORT not set, using default: $PORT'; fi; if [ \"$SERVICE\" = \"api\" ]; then uvicorn main3:app --host 0.0.0.0 --port $PORT; elif [ \"$SERVICE\" = \"celery\" ]; then celery -A celery_config worker --pool=solo --concurrency=1 --loglevel=info; else echo 'Unknown SERVICE value: $SERVICE'; exit 1; fi"]
+# Run with shell command to handle PORT and SERVICE
+CMD ["/bin/sh", "-c", "echo 'Starting with PORT: $PORT'; PORT=${PORT:-8080}; echo 'Using PORT: $PORT'; if [ \"$SERVICE\" = \"api\" ]; then uvicorn main3:app --host 0.0.0.0 --port $PORT; elif [ \"$SERVICE\" = \"celery\" ]; then celery -A celery_config worker --pool=solo --concurrency=1 --loglevel=info; else echo 'Unknown SERVICE value: $SERVICE'; exit 1; fi"]

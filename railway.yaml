@@ -22,7 +22,7 @@ services:
       DB_NAME: ${{MYSQLDATABASE}}
       REDIS_URL: ${{REDIS_URL}}
       API_KEY: cf2c57043f614f62966722a999aa13df
-      PORT: 3000  # Đảm bảo PORT được truyền
+      PORT: 8080  # Đặt cổng mặc định phù hợp với Railway
     volumes:
       - path: /app/data
         size: 5GB
@@ -50,7 +50,7 @@ services:
       DB_NAME: ${{MYSQLDATABASE}}
       REDIS_URL: ${{REDIS_URL}}
       API_KEY: cf2c57043f614f62966722a999aa13df
-      PORT: 3000  # Đảm bảo PORT được truyền
+      PORT: 8080  # Đặt cổng mặc định phù hợp với Railway
     volumes:
       - path: /app/data
         size: 5GB
