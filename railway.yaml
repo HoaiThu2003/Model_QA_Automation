@@ -3,7 +3,7 @@ services:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""  # Không ghi đè CMD
+      command: ""
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
