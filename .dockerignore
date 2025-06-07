@@ -21,7 +21,6 @@ venv/
 .git/
 .gitignore
 *.md
-*.txt
 
 # Loại bỏ file chứng chỉ
 certs/
