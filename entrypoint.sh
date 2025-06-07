@@ -1,8 +1,14 @@
 #!/bin/sh
 
-# Debug: In ra giá trị của PORT
+# Debug: In ra toàn bộ biến môi trường để kiểm tra nếu cần
+echo "Environment variables:"
+env
+
+# In ra giá trị của PORT
 echo "PORT value: $PORT"
-if [ -z $PORT ]; then
+
+# Gán PORT mặc định nếu chưa có
+if [ -z "$PORT" ]; then
     echo "PORT is not set, using default 8000"
     PORT=8000
 fi
