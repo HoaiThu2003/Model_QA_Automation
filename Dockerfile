@@ -31,5 +31,5 @@ RUN find . -name "*.faiss" -type f -delete
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
-# Run the app
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "$PORT"]
+# Run the app with shell form to expand $PORT
+CMD uvicorn main:app --host 0.0.0.0 --port $PORT
