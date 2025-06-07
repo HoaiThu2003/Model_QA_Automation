@@ -14,7 +14,7 @@ COPY requirements.txt .
 
 # 3. Tách cài torch trước (có thể cache riêng và giảm thời gian timeout)
 RUN pip install --upgrade pip && \
-    pip install torch==2.7.1 -f https://download.pytorch.org/whl/cpu/torch_stable.html
+    pip install torch==2.2.2+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html
 
 # 4. Cài các thư viện còn lại
 RUN grep -v "^torch" requirements.txt > other.txt && \
