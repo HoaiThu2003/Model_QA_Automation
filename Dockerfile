@@ -24,8 +24,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY . .
 
 # Copy and set executable permission for entrypoint
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+#COPY entrypoint.sh /app/entrypoint.sh
+#RUN chmod +x /app/entrypoint.sh
 
 # Remove any cached models or large files
 RUN find . -name "*.pkl" -type f -delete
@@ -36,4 +36,8 @@ ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
 # Run with entrypoint script
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Cuối file Dockerfile
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["sh", "/app/entrypoint.sh"]
