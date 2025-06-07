@@ -3,7 +3,7 @@ services:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""
+      command: ""  # Để trống, để ENTRYPOINT xử lý
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
@@ -14,7 +14,7 @@ services:
       DB_PORT: 3306
       CA_PATH: /app/certs/isrgrootx1.pem
       DB_SSL_ENABLED: false
-      SERVICE: api  # Đặt SERVICE là api cho FastAPI
+      SERVICE: api
     variables:
       DB_HOST: ${{MYSQLHOST}}
       DB_USER: ${{MYSQLUSER}}
@@ -29,7 +29,7 @@ services:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""
+      command: ""  # Để trống, để ENTRYPOINT xử lý
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
@@ -40,7 +40,7 @@ services:
       DB_PORT: 3306
       CA_PATH: /app/certs/isrgrootx1.pem
       DB_SSL_ENABLED: false
-      SERVICE: celery  # Đặt SERVICE là celery cho worker
+      SERVICE: celery
     variables:
       DB_HOST: ${{MYSQLHOST}}
       DB_USER: ${{MYSQLUSER}}

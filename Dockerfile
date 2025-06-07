@@ -23,6 +23,10 @@ COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY . .
 
+# Copy entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Remove any cached models or large files
 RUN find . -name "*.pkl" -type f -delete
 RUN find . -name "*.faiss" -type f -delete
@@ -31,5 +35,5 @@ RUN find . -name "*.faiss" -type f -delete
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
 
-# Run with shell to expand $PORT for API or Celery based on entrypoint
-CMD ["sh", "-c", "if [ \"$SERVICE\" = \"api\" ]; then uvicorn main3:app --host 0.0.0.0 --port $PORT; else celery -A celery_config worker --pool=solo --concurrency=1 --loglevel=info; fi"]
+# Run with entrypoint script
+ENTRYPOINT ["/app/entrypoint.sh"]
