@@ -3,6 +3,12 @@ FROM python:3.10-slim AS builder
 
 WORKDIR /app
 
+# Cài đặt phụ thuộc hệ thống
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt -f https://download.pytorch.org/whl/cpu/torch_stable.html
@@ -24,9 +30,6 @@ RUN find . -name "*.faiss" -type f -delete
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:$PATH"
-
-# Download model at runtime (optional, if not included in code)
-# ENV TRANSFORMERS_CACHE=/tmp/transformers_cache
 
 # Run the app
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "$PORT"]
