@@ -14,7 +14,6 @@ services:
       DB_PORT: 3306
       CA_PATH: /app/certs/isrgrootx1.pem
       DB_SSL_ENABLED: false
-      SERVICE: api
     variables:
       DB_HOST: ${{MYSQLHOST}}
       DB_USER: ${{MYSQLUSER}}
@@ -22,7 +21,6 @@ services:
       DB_NAME: ${{MYSQLDATABASE}}
       REDIS_URL: ${{REDIS_URL}}
       API_KEY: cf2c57043f614f62966722a999aa13df
-      PORT: 8080  # Đặt cổng mặc định phù hợp với Railway
     volumes:
       - path: /app/data
         size: 5GB
@@ -31,7 +29,7 @@ services:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""  # Không ghi đè CMD
+      command: "celery -A celery_config worker --pool=solo --concurrency=1 --loglevel=info"  # Chỉ định lệnh cho Celery
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
@@ -42,7 +40,6 @@ services:
       DB_PORT: 3306
       CA_PATH: /app/certs/isrgrootx1.pem
       DB_SSL_ENABLED: false
-      SERVICE: celery
     variables:
       DB_HOST: ${{MYSQLHOST}}
       DB_USER: ${{MYSQLUSER}}
@@ -50,7 +47,6 @@ services:
       DB_NAME: ${{MYSQLDATABASE}}
       REDIS_URL: ${{REDIS_URL}}
       API_KEY: cf2c57043f614f62966722a999aa13df
-      PORT: 8080  # Đặt cổng mặc định phù hợp với Railway
     volumes:
       - path: /app/data
         size: 5GB
