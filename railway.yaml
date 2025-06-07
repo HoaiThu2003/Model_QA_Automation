@@ -3,7 +3,7 @@ services:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""  # Để trống, để ENTRYPOINT xử lý
+      command: ""  # Đảm bảo không có lệnh ghi đè
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
@@ -29,7 +29,7 @@ services:
     build:
       dockerfile: Dockerfile
     start:
-      command: ""  # Để trống, để ENTRYPOINT xử lý
+      command: ""  # Đảm bảo không có lệnh ghi đè
     environment:
       PYTHON_VERSION: 3.10
       RENDER_ENV: production
