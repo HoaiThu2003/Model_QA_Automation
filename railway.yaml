@@ -14,6 +14,7 @@ services:
       DB_PORT: 3306
       CA_PATH: /app/certs/isrgrootx1.pem
       DB_SSL_ENABLED: false
+      PORT: 8000
       SERVICE: api
     variables:
       DB_HOST: ${{MYSQLHOST}}

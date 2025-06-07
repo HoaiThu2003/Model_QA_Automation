@@ -3,13 +3,23 @@
 echo "Available environment variables:"
 env
 
-# Set PORT mặc định nếu không được set
-PORT=${PORT:-8000}
-echo "Using PORT=$PORT"
+# Gán PORT mặc định nếu chưa có
+if [ -z "$PORT" ]; then
+  PORT=8000
+  echo "PORT not set. Using default: $PORT"
+else
+  echo "Using PORT=$PORT"
+fi
+
+# Tránh lỗi port không hợp lệ
+if ! echo "$PORT" | grep -Eq '^[0-9]+$'; then
+  echo "Invalid PORT: $PORT"
+  exit 1
+fi
 
 if [ "$SERVICE" = "api" ]; then
     echo "Starting FastAPI on port $PORT"
-    exec uvicorn main3:app --host 0.0.0.0 --port $PORT
+    exec uvicorn main3:app --host 0.0.0.0 --port "$PORT"
 elif [ "$SERVICE" = "celery" ]; then
     echo "Starting Celery worker"
     exec celery -A celery_config worker --pool=solo --concurrency=1 --loglevel=info
