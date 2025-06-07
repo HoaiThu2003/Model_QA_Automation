@@ -15,10 +15,10 @@ services:
       CA_PATH: /app/certs/isrgrootx1.pem
       DB_SSL_ENABLED: false
     variables:
-      DB_HOST: ${{MYSQLHOST}}
-      DB_USER: ${{MYSQLUSER}}
-      DB_PASSWORD: ${{MYSQLPASSWORD}}
-      DB_NAME: ${{MYSQLDATABASE}}
+      MYSQLHOST: ${{MYSQLHOST}}
+      MYSQLUSER: ${{MYSQLUSER}}
+      MYSQLPASSWORD: ${{MYSQLPASSWORD}}
+      MYSQLDATABASE: ${{MYSQLDATABASE}}
       REDIS_URL: ${{REDIS_URL}}
       API_KEY: cf2c57043f614f62966722a999aa13df
     volumes:

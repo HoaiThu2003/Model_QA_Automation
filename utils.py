@@ -49,11 +49,11 @@ FINE_TUNE_INTERVAL = 3600  # 1 giờ
 
 # Cấu hình MySQL cho aiomysql
 db_config = {
-    "host": os.getenv("DB_HOST", "localhost"),  # Sử dụng DB_HOST từ Railway
-    "port": int(os.getenv("DB_PORT", 3306)),    # Sử dụng DB_PORT từ Railway
-    "user": os.getenv("DB_USER", "root"),       # Sử dụng DB_USER từ Railway
-    "password": os.getenv("DB_PASSWORD", ""),   # Sử dụng DB_PASSWORD từ Railway
-    "db": os.getenv("DB_NAME", "qa_db"),        # Sử dụng DB_NAME từ Railway
+    "host": os.getenv("MYSQLHOST", "localhost"),
+    "port": int(os.getenv("MYSQLPORT", 3306)),
+    "user": os.getenv("MYSQLUSER", "root"),
+    "password": os.getenv("MYSQLPASSWORD", ""),
+    "db": os.getenv("MYSQLDATABASE", "qa_db"),
     "maxsize": 20,
     "minsize": 10,
     "connect_timeout": 10,
