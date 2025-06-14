@@ -80,6 +80,7 @@ class AppState:
         self.db_pool = None
         self.redis_client = None
         self.tokenizer = None
+        self.auto_fine_tune_enabled = True
 
 # Khởi tạo state global
 state = AppState()
@@ -216,7 +217,8 @@ async def load_data_db(state: AppState, limit: int = None, batch_size: int = 100
 async def save_data_batch(records: List[Tuple], state: AppState) -> List[Tuple[int, str, str]]:
     if not all(len(record) == 4 for record in records):
         logger.error("Invalid record format in records")
-        raise HTTPException(status_code=400, detail="Each record must have 4 elements: date, question, answer, embedding")
+        raise HTTPException(status_code=400, detail="Each record must have 4 elements: "
+                                                    "date, question, answer, embedding")
     async with state.db_pool.acquire() as conn:
         async with conn.cursor() as cursor:
             try:

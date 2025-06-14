@@ -46,7 +46,7 @@ app.add_middleware(
 )
 
 # API tải lên file Excel
-@app.post("/upload_excel")
+@app.post("/upload-excel")
 async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(get_app_state)):
     if not file.filename.endswith((".xls", ".xlsx")):
         raise HTTPException(status_code=400, detail="Only Excel files (.xls, .xlsx) supported")
@@ -279,7 +279,7 @@ async def update(data_input: UpdateData, state: AppState = Depends(get_app_state
         raise HTTPException(status_code=500, detail=f"Update error: {str(e)}")
 
 # API fine-tune thủ công
-@app.post("/fine_tune")
+@app.post("/fine-tune")
 async def fine_tune(state: AppState = Depends(get_app_state)):
     try:
         from tasks import fine_tune_task
@@ -290,7 +290,7 @@ async def fine_tune(state: AppState = Depends(get_app_state)):
         raise HTTPException(status_code=500, detail=f"Fine-tune error: {str(e)}")
 
 # API kiểm tra auto fine-tune
-@app.get("/test_auto_fine_tune")
+@app.get("/test-auto-fine-tune")
 async def test_auto_fine_tune():
     await auto_fine_tune()
     return {"message": "Auto fine-tune triggered"}
@@ -298,8 +298,11 @@ async def test_auto_fine_tune():
 # Tự động fine-tune mỗi tuần
 async def auto_fine_tune():
     logger.info("Starting auto fine-tune")
+    state = get_app_state()
+    if not state.auto_fine_tune_enabled:
+        logger.info("Auto fine-tune is disabled, skipping")
+        return
     try:
-        state = get_app_state()
         state.raw_data = await load_data_db(state)
         total_records = await count_records(state)
         new_records = total_records - state.last_fine_tune_record_count
@@ -313,13 +316,46 @@ async def auto_fine_tune():
     except Exception as e:
         logger.error(f"Auto fine-tune error: {e}")
 
-# Khởi tạo scheduler
-scheduler = AsyncIOScheduler()
-scheduler.add_job(auto_fine_tune, 'interval', weeks=1)
-scheduler.start()
+# API bật lập lịch
+@app.post("/enable-auto-fine-tune")
+async def enable_auto_fine_tune(state: AppState = Depends(get_app_state)):
+    try:
+        if not state.auto_fine_tune_enabled:
+            state.auto_fine_tune_enabled = True
+            if not scheduler.running:
+                scheduler.add_job(auto_fine_tune, 'interval', weeks=1)
+                scheduler.start()
+                logger.info("Auto fine-tune scheduler enabled and started")
+            else:
+                logger.info("Auto fine-tune scheduler already running")
+        return {"message": "Auto fine-tune scheduling enabled", "status": state.auto_fine_tune_enabled}
+    except Exception as e:
+        logger.error(f"Error enabling auto fine-tune: {e}")
+        raise HTTPException(status_code=500, detail=f"Error enabling auto fine-tune: {str(e)}")
+
+# API tắt lập lịch
+@app.post("/disable-auto-fine-tune")
+async def disable_auto_fine_tune(state: AppState = Depends(get_app_state)):
+    try:
+        if state.auto_fine_tune_enabled:
+            state.auto_fine_tune_enabled = False
+            if scheduler.running:
+                scheduler.shutdown()
+                logger.info("Auto fine-tune scheduler disabled and shut down")
+            else:
+                logger.info("Auto fine-tune scheduler already stopped")
+        return {"message": "Auto fine-tune scheduling disabled", "status": state.auto_fine_tune_enabled}
+    except Exception as e:
+        logger.error(f"Error disabling auto fine-tune: {e}")
+        raise HTTPException(status_code=500, detail=f"Error disabling auto fine-tune: {str(e)}")
+
+# API kiểm tra trạng thái lập lịch
+@app.get("/get-auto-fine-tune-status")
+async def get_auto_fine_tune_status(state: AppState = Depends(get_app_state)):
+    return {"status": state.auto_fine_tune_enabled, "message": "Auto fine-tune status retrieved"}
 
 # Tắt scheduler
-atexit.register(lambda: scheduler.shutdown())
+atexit.register(lambda: scheduler.shutdown() if scheduler.running else None)  # Chỉ giữ một lần
 
 # Khởi tạo ứng dụng
 @app.on_event("startup")
@@ -343,6 +379,17 @@ async def startup_event():
         logger.debug("Model loaded successfully")
         await initialize_cache_and_index(state)
         logger.debug("initialize_cache_and_index completed")
+
+        # Khởi tạo và khởi động scheduler trong startup_event
+        global scheduler  # Đảm bảo scheduler là biến toàn cục
+        scheduler = AsyncIOScheduler()
+        if state.auto_fine_tune_enabled:
+            scheduler.add_job(auto_fine_tune, 'interval', weeks=1)
+            scheduler.start()
+            logger.info("Auto fine-tune scheduler started")
+        else:
+            logger.info("Auto fine-tune scheduler not started due to disabled state")
+
         logger.info("Application startup completed successfully")
     except Exception as e:
         logger.critical(f"Startup failed: {e}")
