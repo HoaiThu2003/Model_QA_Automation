@@ -37,13 +37,13 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 # Cấu hình CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:3000"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 # API tải lên file Excel
 @app.post("/upload-excel")
@@ -284,16 +284,20 @@ async def fine_tune(state: AppState = Depends(get_app_state)):
     try:
         from tasks import fine_tune_task
         fine_tune_task.delay()
+        fine_tuned = True
+        state.last_fine_tune = time.time()
+        total_records = await count_records(state)
+        state.last_fine_tune_record_count = total_records
         return {"message": "Fine-tuning scheduled"}
     except Exception as e:
         logger.error(f"Fine-tune API error: {e}")
         raise HTTPException(status_code=500, detail=f"Fine-tune error: {str(e)}")
 
 # API kiểm tra auto fine-tune
-@app.get("/test-auto-fine-tune")
-async def test_auto_fine_tune():
-    await auto_fine_tune()
-    return {"message": "Auto fine-tune triggered"}
+# @app.get("/test-auto-fine-tune")
+# async def test_auto_fine_tune():
+#     await auto_fine_tune()
+#     return {"message": "Auto fine-tune triggered"}
 
 # Tự động fine-tune mỗi tuần
 async def auto_fine_tune():

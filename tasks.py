@@ -42,6 +42,23 @@ async def close_db_pool(pool):
         except Exception as e:
             logger.error(f"Error closing worker MySQL pool: {str(e)}")
 
+def load_or_download_phobert(model_path="./phobert_base"):
+    """Tải hoặc tải xuống và lưu mô hình PhoBERT với Sentence Transformers."""
+    try:
+        if not os.path.exists(model_path):
+            logger.info(f"Directory {model_path} does not exist, creating and downloading PhoBERT...")
+            os.makedirs(model_path, exist_ok=True)
+            model = SentenceTransformer("vinai/phobert-base")
+            model.save(model_path)
+            logger.info(f"Model saved to {model_path}")
+        else:
+            logger.info(f"Loading PhoBERT from {model_path}")
+            model = SentenceTransformer(model_path)
+        return model, None  # Không cần tokenizer riêng
+    except Exception as e:
+        logger.error(f"Error loading or downloading PhoBERT: {str(e)}")
+        raise
+
 @app.task(bind=True, max_retries=3, retry_backoff=True)
 def fine_tune_task(self):
     loop = None
@@ -62,12 +79,9 @@ def fine_tune_task(self):
             state.db_pool = loop.run_until_complete(init_worker_pool())
             logger.info("Database pool initialized successfully")
 
-        model_path = os.getenv("MODEL_PATH", "./phobert_base") if os.path.exists(os.getenv("MODEL_PATH", "./phobert_base")) else "vinai/phobert-base"
-        if not os.path.exists(model_path):
-            logger.error(f"Model path {model_path} does not exist")
-            raise FileNotFoundError(f"Model path {model_path} does not exist")
-        logger.info(f"Loading SentenceTransformer from {model_path}")
-        state.model = SentenceTransformer(model_path)
+        # Tải hoặc tải xuống mô hình PhoBERT
+        model_path = os.getenv("MODEL_PATH", "./phobert_base")
+        state.model, state.tokenizer = load_or_download_phobert(model_path)
 
         loop = loop or asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -123,12 +137,11 @@ def update_embeddings_task(self):
             state.db_pool = loop.run_until_complete(init_worker_pool())
             logger.info("Database pool initialized successfully")
 
-        model_path = os.getenv("CHECKPOINT_PATH", "./phobert_finetuned") if os.path.exists(os.getenv("CHECKPOINT_PATH", "./phobert_finetuned")) else os.getenv("MODEL_PATH", "./phobert_base")
+        model_path = os.getenv("CHECKPOINT_PATH", "./phobert_finetuned")
         if not os.path.exists(model_path):
-            logger.error(f"Model path {model_path} does not exist")
-            raise FileNotFoundError(f"Model path {model_path} does not exist")
-        logger.info(f"Loading SentenceTransformer from {model_path}")
-        state.model = SentenceTransformer(model_path)
+            logger.warning(f"Checkpoint path {model_path} not found, falling back to {os.getenv('MODEL_PATH', './phobert_base')}")
+            model_path = os.getenv("MODEL_PATH", "./phobert_base")
+        state.model, state.tokenizer = load_or_download_phobert(model_path)
 
         loop = loop or asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
