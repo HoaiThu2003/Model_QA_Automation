@@ -86,10 +86,11 @@ def fine_tune_task(self):
         loop = loop or asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         state.raw_data = loop.run_until_complete(load_data_db(state))
-        if state.raw_data.empty or len(state.raw_data) < 10:
-            logger.warning("Insufficient data for fine-tuning, skipping")
-            return False
+        # if state.raw_data.empty or len(state.raw_data) < 10:
+        #     logger.warning("Insufficient data for fine-tuning, skipping")
+        #     return False
 
+        # thư hiêện fine_tune_phobert trả về 1 bool
         if not fine_tune_phobert(state, loop=loop):
             logger.error("fine_tune_phobert failed")
             raise Exception("Fine-tuning failed")

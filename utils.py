@@ -155,8 +155,10 @@ def clean_text(text: str) -> str:
     if not isinstance(text, str) or not text.strip():
         return ""
     text = text.lower().strip()
-    text = re.sub(r'[^\w\s?.!]', '', text)
-    text = ViTokenizer.tokenize(text)
+    text = re.sub(r'[!?]{2,}', '.', text)  # Chuẩn hóa dấu câu
+    text = re.sub(r'[^\w\s?.!]', '', text)  # Loại ký tự đặc biệt
+    stop_words = {"chào", "dạ", "ạ", }
+    text = ' '.join(word for word in ViTokenizer.tokenize(text).split() if word not in stop_words)
     return text
 
 # Đếm số bản ghi
@@ -237,6 +239,8 @@ def encode_text_batch(texts: List[str], state: AppState) -> np.ndarray:
     if not texts:
         return np.array([])
     embeddings = state.model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+    if embeddings.size > 0:
+        embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
     return embeddings
 
 # Lưu FAISS index với Redis Lock
@@ -335,6 +339,8 @@ async def update_embeddings_after_finetune(state: AppState):
     clean_questions = [clean_text(q) for q in state.raw_data['question'] if q]
     clean_answers = [clean_text(a) for a in state.raw_data['answer'] if a]
     new_embeddings = state.model.encode(clean_questions, convert_to_numpy=True, show_progress_bar=True)
+    if new_embeddings.size > 0:
+        new_embeddings = new_embeddings / np.linalg.norm(new_embeddings, axis=1, keepdims=True)
     state.cache_data = {
         'ids': state.raw_data['id'].tolist(),
         'embeddings': new_embeddings,
@@ -381,6 +387,7 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
         logger.error("Model not initialized")
         return False
 
+    #  kiêm tra và tải dữ liệu thô nếu không đủ 10 ban ghji thì false
     try:
         if state.raw_data is None or state.raw_data.empty or len(state.raw_data) < 10:
             loop = loop or asyncio.new_event_loop()
@@ -397,9 +404,11 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
         # Khởi tạo tokenizer
         base_path = os.getenv("MODEL_PATH", MODEL_PATH)
         logger.info(f"Loading tokenizer from: {base_path}")
+        # Kiểm tra file tokenizer (tokenizer_config.json) tồn tại không, nếu không thì dừng
         if base_path.endswith("phobert_base") and not os.path.exists(os.path.join(base_path, "tokenizer_config.json")):
             logger.error(f"Tokenizer config not found in {base_path}. Required files: tokenizer_config.json, vocab.txt, bpe.codes")
             return False
+        # nếu tồn tại nhng none, tải từ base_path và lưu vào state.tokenizer
         if state.tokenizer is None:
             state.tokenizer = AutoTokenizer.from_pretrained(
                 base_path,
@@ -411,13 +420,16 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
         with Lock(state.redis_client, "fine_tune_lock", timeout=3600, blocking_timeout=60):
             try:
                 train_examples = []
+                #  thm dữ lệu vào train_examples
                 for _, row in state.raw_data.iterrows():
                     q_clean = clean_text(str(row['question']))
                     a_clean = clean_text(str(row['answer']))
                     if q_clean and a_clean:
                         train_examples.append(InputExample(texts=[q_clean, a_clean]))
 
+                # nhóm các câu hỏi theo câu trả lời
                 groups = state.raw_data.groupby('answer')
+                # lấy các câu hoỏi trong cùng 1 nhóm, tạo cặp câu hỏi tương tự nếu nhóm có nhiều hơn 1 câu.
                 for answer, group in groups:
                     clean_questions = [clean_text(q) for q in group['question'].tolist() if clean_text(q)]
                     if len(clean_questions) > 1:
@@ -425,26 +437,32 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
                             for j in range(i + 1, len(clean_questions)):
                                 train_examples.append(InputExample(texts=[clean_questions[i], clean_questions[j]]))
 
+                # Kiểm tra nếu train_examples rỗng, dừng nếu không có dữ liệu.
                 if not train_examples:
                     logger.error("No valid training examples")
                     return False
 
-                train_dataloader = DataLoader(
+                train_dataloader = DataLoader( #chia train_examples thành lô (batch size 4), xáo trộn để học đều.
                     train_examples,
                     shuffle=True,
                     batch_size=4,
                     pin_memory=False
                 )
+                # đo sai số khi huấn luyện
                 train_loss = losses.MultipleNegativesRankingLoss(state.model)
+                # xác ịnh nơi lưu mô hình
                 checkpoint_path = os.getenv("CHECKPOINT_PATH", CHECKPOINT_PATH)
 
+                # Tạo thư mục tạm (temp_dir) để lưu mô hình trong quá trình huấn luyện
                 with tempfile.TemporaryDirectory() as temp_dir:
                     temp_checkpoint = os.path.join(temp_dir, "phobert_temp")
                     logger.info(f"Using temporary checkpoint: {temp_checkpoint}")
+                    # Xóa mô hình cũ tại checkpoint_path nếu tồn tại.
                     if os.path.exists(checkpoint_path):
                         logger.info(f"Removing old checkpoint at {checkpoint_path}")
                         shutil.rmtree(checkpoint_path, ignore_errors=True)
 
+                    # state.model.fit 3 lần
                     max_retries = 3
                     for attempt in range(max_retries):
                         try:
@@ -455,7 +473,7 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
                                 output_path=temp_checkpoint,
                                 checkpoint_path=temp_checkpoint,
                                 checkpoint_save_steps=100,
-                                show_progress_bar=True
+                                show_progress_bar=True # hển th tiê đọ
                             )
                             break
                         except Exception as e:
@@ -465,6 +483,7 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
                                 return False
                             time.sleep(5)
 
+                    # di chuyêển mô hình từ thư mục tạm sang checkpoint_path
                     shutil.move(temp_checkpoint, checkpoint_path)
                     logger.info(f"Moved fine-tuned model to {checkpoint_path}")
 
@@ -472,13 +491,15 @@ def fine_tune_phobert(state: AppState, loop: asyncio.AbstractEventLoop = None) -
                     logger.error(f"Checkpoint not found: {checkpoint_path}")
                     return False
 
+                # Tải lại mô hình từ checkpoint_path vào state.model
                 state.model = SentenceTransformer(checkpoint_path)
                 logger.info("Reloaded fine-tuned model")
-
+                # Cập nhật thời gian
                 state.last_fine_tune = int(time.time())
                 loop = loop or asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
+                    # Cập nhật ố bản ghi cho lần fine tune
                     state.last_fine_tune_record_count = loop.run_until_complete(count_records(state))
                 finally:
                     if not loop.is_closed():

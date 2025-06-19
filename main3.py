@@ -60,17 +60,22 @@ async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(g
             raise HTTPException(status_code=400, detail="Excel must have 'question' and 'answer' columns")
         if len(df) > 10000:
             raise HTTPException(status_code=400, detail="Exceed 10,000 records")
-        df['question'] = df['question'].astype(str).str.strip()
-        df['answer'] = df['answer'].str.strip()
-        if df['question'].str.len().eq(0).any() or df['answer'].str.len().eq(0).any():
-            raise HTTPException(status_code=400, detail="Questions and answers cannot be empty")
+
+        # Kiểm tra và chuyển đổi kiểu dữ liệu trước khi gọi .str methods
+        for col in ['question', 'answer']:
+            if df[col].isnull().any() or not pd.api.types.is_string_dtype(df[col]):
+                df[col] = df[col].fillna('').astype(str)  # Điền null bằng chuỗi rỗng và chuyển thành chuỗi
+            df[col] = df[col].str.strip() #loai bỏ khoảng trắng thừa
+            if df[col].str.len().eq(0).any():
+                raise HTTPException(status_code=400, detail="Questions and answers cannot be empty")
+
         records = []
         new_embeddings = []
         skipped_empty = 0
         skipped_duplicate = 0
         async with state.db_pool.acquire() as conn:
             async with conn.cursor() as cursor:
-                for _, row in df.iterrows():
+                for _, row in df.iterrows(): #lặp qua từng hàng
                     q = row['question']
                     a = row['answer']
                     q_clean = clean_text(q)
@@ -93,10 +98,10 @@ async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(g
         if not records:
             logger.error(f"No valid records to save: {skipped_empty} empty after cleaning, {skipped_duplicate} duplicates")
             raise HTTPException(
-                status_code=400,
+                status_code=401,
                 detail=f"No valid records to save: {skipped_empty} empty after cleaning, {skipped_duplicate} duplicates"
             )
-        inserted_data = await save_data_batch(records, state)
+        inserted_data = await save_data_batch(records, state) # trả về danh sách (id, question, answer)
         inserted_ids = [data[0] for data in inserted_data]
         new_questions = [data[1] for data in new_embeddings]
         new_answers = [data[2] for data in new_embeddings]
@@ -104,7 +109,7 @@ async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(g
         new_clean_answers = [data[4] for data in new_embeddings]
         new_embs = [data[0] for data in new_embeddings]
         if state.cache_data['embeddings'].size:
-            state.cache_data['embeddings'] = np.vstack([state.cache_data['embeddings'], new_embs])
+            state.cache_data['embeddings'] = np.vstack([state.cache_data['embeddings'], new_embs]) # Gộp với dữ liệu cũ bằng np.vstack hoặc tạo mới.
         else:
             state.cache_data['embeddings'] = np.array(new_embs)
         state.cache_data['ids'].extend(inserted_ids)
@@ -147,31 +152,56 @@ async def upload_excel(file: UploadFile = File(...), state: AppState = Depends(g
         raise
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=402, detail="Đã xảy ra lỗi không mong muốn, vui lòng thử lại sau")
 
-# Hàm tìm kiếm
-def search_answer(query: str, k: int = 5, state: AppState = Depends(get_app_state)) -> List[Dict]:
-    if not query.strip():
+# Hàm tìm kiếm với ngưỡng tương đồng
+def search_answer(query: str, k: int = 5, state: AppState = Depends(get_app_state), max_distance_threshold: float = 1.0) -> List[Dict]:
+    if not query.strip(): # Kiểm tra chuỗi query sau khi loại bỏ khoảng trắng Nếu rỗng...
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     query_clean = clean_text(query)
     query_embedding = encode_text_batch([query_clean], state)[0]
     distances, indices = state.index.search(query_embedding.reshape(1, -1).astype(np.float32), k * 4)
-    answer_groups = {}
-    id_to_idx = {id_: idx for idx, id_ in enumerate(state.cache_data['ids'])}
-    for j, i in enumerate(indices[0]):
-        if i in id_to_idx:
-            idx = id_to_idx[i]
+
+    # Lọc các kết quả dựa trên ngưỡng khoảng cách
+    valid_results = []
+    id_to_idx = {id_: idx for idx, id_ in enumerate(state.cache_data['ids'])} # Tạo từ điển ánh xạ ID sang chỉ số trong cache.
+    for j, i in enumerate(indices[0]): #lặp qua ds ID từ cache
+        if i in id_to_idx and distances[0][j] <= max_distance_threshold:
+            idx = id_to_idx[i]      # lấy thông tin từ cache thm vào thêm vào valid result
             answer = state.cache_data['answers'][idx]
             question = state.cache_data['questions'][idx]
             clean_answer = state.cache_data['clean_answers'][idx]
             distance = float(distances[0][j])
-            if clean_answer not in answer_groups:
-                answer_groups[clean_answer] = {"questions": [], "min_distance": distance}
-            answer_groups[clean_answer]["questions"].append({"question": question, "distance": distance})
-            answer_groups[clean_answer]["min_distance"] = min(answer_groups[clean_answer]["min_distance"], distance)
+            valid_results.append({
+                "question": question,
+                "answer": answer,
+                "distance": distance,
+                "clean_answer": clean_answer
+            })
+
+    if not valid_results:
+        logger.warning(f"No results found within threshold {max_distance_threshold} for query: {query_clean}")
+        return [{
+            "question": "Không tìm thấy câu trả lời phù hợp",
+            "answer": "Vui lòng thử lại với câu hỏi khác hoặc kiểm tra dữ liệu.",
+            "distance": None
+        }]
+
+    # Nhóm theo clean_answer và chọn câu hỏi tốt nhất
+    answer_groups = {}
+    for result in valid_results:
+        clean_answer = result["clean_answer"]
+        if clean_answer not in answer_groups:
+            answer_groups[clean_answer] = {"questions": [], "min_distance": float('inf')}
+        answer_groups[clean_answer]["questions"].append({"question": result["question"], "distance": result["distance"]})
+        answer_groups[clean_answer]["min_distance"] = min(answer_groups[clean_answer]["min_distance"], result["distance"])
+
+    # Sắp xếp nhóm theo khoảng cách nhỏ nhất
     sorted_groups = sorted(answer_groups.items(), key=lambda x: x[1]["min_distance"])
     results = []
     used_clean_answers = set()
+
+    # lấy ch s nhỏ nhâ trong nhom
     if sorted_groups:
         top_clean_answer, top_group = sorted_groups[0]
         top_question = min(top_group["questions"], key=lambda x: x["distance"])
@@ -183,6 +213,7 @@ def search_answer(query: str, k: int = 5, state: AppState = Depends(get_app_stat
             "distance": top_question["distance"]
         })
         used_clean_answers.add(top_clean_answer)
+
     for clean_answer, group in sorted_groups[1:]:
         if clean_answer not in used_clean_answers and len(results) < k:
             best_question = min(group["questions"], key=lambda x: x["distance"])
@@ -194,37 +225,28 @@ def search_answer(query: str, k: int = 5, state: AppState = Depends(get_app_stat
                 "distance": best_question["distance"]
             })
             used_clean_answers.add(clean_answer)
+
     if len(results) < k:
-        for clean_answer, group in sorted_groups:
-            if clean_answer not in used_clean_answers:
-                best_question = min(group["questions"], key=lambda x: x["distance"])
-                idx = state.cache_data['clean_answers'].index(clean_answer)
-                answer = state.cache_data['answers'][idx]
-                results.append({
-                    "question": best_question["question"],
-                    "answer": answer,
-                    "distance": best_question["distance"]
-                })
-                used_clean_answers.add(clean_answer)
-                if len(results) >= k:
-                    break
-    if len(results) < k:
-        logger.warning(f"Only found {len(results)} unique answers for query: {query_clean}")
+        logger.warning(f"Only found {len(results)} unique answers within threshold for query: {query_clean}")
     return results[:k]
 
 # API tìm kiếm
 class Query(BaseModel):
     question: str
+    max_distance_threshold: float = 1.0
 
 @app.post("/search")
 async def search(query: Query, state: AppState = Depends(get_app_state)):
     try:
-        results = search_answer(query.question, k=5, state=state)
+        results = search_answer(query.question, k=5, state=state, max_distance_threshold=query.max_distance_threshold)
         logger.info(f"Search query: {query.question}, found {len(results)} results")
         return results
+    except HTTPException as e:
+        logger.error(f"Search error: {e.detail}")
+        raise e
     except Exception as e:
         logger.error(f"Search error: {e}")
-        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Lỗi tìm kiếm, vui lòng thử lại sau")
 
 # API cập nhật dữ liệu
 class UpdateData(BaseModel):
@@ -285,9 +307,9 @@ async def fine_tune(state: AppState = Depends(get_app_state)):
         from tasks import fine_tune_task
         fine_tune_task.delay()
         fine_tuned = True
-        state.last_fine_tune = time.time()
-        total_records = await count_records(state)
-        state.last_fine_tune_record_count = total_records
+        # state.last_fine_tune = time.time()
+        # total_records = await count_records(state)
+        # state.last_fine_tune_record_count = total_records
         return {"message": "Fine-tuning scheduled"}
     except Exception as e:
         logger.error(f"Fine-tune API error: {e}")
